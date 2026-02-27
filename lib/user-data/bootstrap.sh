@@ -158,7 +158,7 @@ TS_AUTH_KEY=$(get_ssm_param "%%TAILSCALE_KEY_PARAM%%")
 HOSTNAME="openclaw-$(echo ${AGENT_NAME} | tr '[:upper:]' '[:lower:]')"
 systemctl enable tailscaled
 systemctl start tailscaled
-tailscale up --authkey="${TS_AUTH_KEY}" --hostname="${HOSTNAME}" --accept-routes
+tailscale up --authkey="${TS_AUTH_KEY}" --hostname="${HOSTNAME}" --accept-routes --ssh
 
 # ── Create system-level systemd service for OpenClaw gateway ────
 # openclaw gateway install creates a user-level service which doesn't
