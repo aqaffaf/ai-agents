@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(aws cloudformation:*)",
+      "Bash(aws ec2 describe-instances:*)",
+      "Bash(aws ssm send-command:*)",
+      "Bash(curl:*)",
+      "Bash(/usr/local/bin/aws ssm send-command:*)",
+      "Bash(source:*)",
+      "Bash(source ~/.zprofile)",
+      "Bash(brew install:*)"
+    ]
+  }
+}

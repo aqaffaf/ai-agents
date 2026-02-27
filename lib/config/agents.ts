@@ -9,21 +9,26 @@ export interface AgentDefinition {
   openclawConfig: OpenClawConfig;
 }
 
+export type ApiProvider = 'anthropic' | 'openrouter' | 'ollama';
+
 export interface OpenClawConfig {
   primaryModel: string;
   fallbackModel?: string;
   heartbeatIntervalMinutes: number;
-  telegram: {
+  discord: {
     botTokenSsmParam: string;
     gatewayTokenSsmParam: string;
   };
   sandbox: boolean;
+  apiProvider: ApiProvider;
+  ollamaBaseUrl?: string;
 }
 
 export const SHARED_SSM_PARAMS = {
   anthropicApiKey: '/openclaw/anthropic-api-key',
   telegramGroupId: '/openclaw/telegram-group-id',
   tailscaleAuthKey: '/openclaw/tailscale-auth-key',
+  openrouterApiKey: '/openclaw/openrouter-api-key',
 };
 
 export const AGENTS: AgentDefinition[] = [
@@ -34,14 +39,15 @@ export const AGENTS: AgentDefinition[] = [
     role: 'Manager & Coordinator',
     instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
     openclawConfig: {
-      primaryModel: 'claude-opus-4-6',
-      fallbackModel: 'claude-sonnet-4-5-20241022',
+      primaryModel: 'ollama/lfm2:latest',
       heartbeatIntervalMinutes: 15,
-      telegram: {
-        botTokenSsmParam: '/openclaw/telegram-bot-token/manager',
+      discord: {
+        botTokenSsmParam: '/openclaw/discord-bot-token/manager',
         gatewayTokenSsmParam: '/openclaw/gateway-token/manager',
       },
       sandbox: false,
+      apiProvider: 'ollama',
+      ollamaBaseUrl: 'http://z6:11434',
     },
   },
   {
@@ -51,13 +57,15 @@ export const AGENTS: AgentDefinition[] = [
     role: 'Product & Growth Lead',
     instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
     openclawConfig: {
-      primaryModel: 'claude-sonnet-4-5-20241022',
+      primaryModel: 'ollama/lfm2:latest',
       heartbeatIntervalMinutes: 30,
-      telegram: {
-        botTokenSsmParam: '/openclaw/telegram-bot-token/product',
+      discord: {
+        botTokenSsmParam: '/openclaw/discord-bot-token/product',
         gatewayTokenSsmParam: '/openclaw/gateway-token/product',
       },
       sandbox: false,
+      apiProvider: 'ollama',
+      ollamaBaseUrl: 'http://z6:11434',
     },
   },
   {
@@ -67,14 +75,15 @@ export const AGENTS: AgentDefinition[] = [
     role: 'Technical Developer',
     instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
     openclawConfig: {
-      primaryModel: 'claude-sonnet-4-5-20241022',
-      fallbackModel: 'claude-opus-4-6',
+      primaryModel: 'ollama/qwen3-coder:30b',
       heartbeatIntervalMinutes: 30,
-      telegram: {
-        botTokenSsmParam: '/openclaw/telegram-bot-token/developer',
+      discord: {
+        botTokenSsmParam: '/openclaw/discord-bot-token/developer',
         gatewayTokenSsmParam: '/openclaw/gateway-token/developer',
       },
       sandbox: true,
+      apiProvider: 'ollama',
+      ollamaBaseUrl: 'http://z6:11434',
     },
   },
 ];

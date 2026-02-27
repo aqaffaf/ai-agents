@@ -10,7 +10,6 @@ export interface OpenClawInstanceProps {
   agent: AgentDefinition;
   vpc: ec2.IVpc;
   securityGroup: ec2.ISecurityGroup;
-  workspaceDir: string; // absolute path to workspace template dir
 }
 
 export class OpenClawInstance extends Construct {
@@ -19,7 +18,7 @@ export class OpenClawInstance extends Construct {
   constructor(scope: Construct, id: string, props: OpenClawInstanceProps) {
     super(scope, id);
 
-    const { agent, vpc, securityGroup, workspaceDir } = props;
+    const { agent, vpc, securityGroup } = props;
     const region = cdk.Stack.of(this).region;
 
     // ── IAM Role ───────────────────────────────────────────────
@@ -44,17 +43,6 @@ export class OpenClawInstance extends Construct {
       }),
     );
 
-    // ── Read workspace template files ──────────────────────────
-    const readTemplate = (filename: string): string => {
-      const filePath = path.join(workspaceDir, filename);
-      return fs.readFileSync(filePath, 'utf-8');
-    };
-
-    const soulMd = readTemplate('SOUL.md');
-    const identityMd = readTemplate('IDENTITY.md');
-    const agentsMd = readTemplate('AGENTS.md');
-    const heartbeatMd = readTemplate('HEARTBEAT.md');
-
     // ── Build openclaw.json ────────────────────────────────────
     const openclawJson = buildOpenClawJson(agent);
 
@@ -64,20 +52,26 @@ export class OpenClawInstance extends Construct {
       'utf-8',
     );
 
+    const spawnSubagentDefaultModel =
+      agent.openclawConfig.apiProvider === 'openrouter'
+        ? agent.openclawConfig.primaryModel.replace(/^openrouter\//, '')
+        : agent.openclawConfig.apiProvider === 'ollama'
+          ? agent.openclawConfig.primaryModel.replace(/^ollama\//, '')
+          : 'claude-sonnet-4-6';
+
     const userData = ec2.UserData.forLinux();
     const rendered = bootstrapScript
       .replaceAll('%%AGENT_ID%%', agent.agentId)
       .replaceAll('%%AGENT_NAME%%', agent.agentName)
       .replaceAll('%%REGION%%', region)
       .replaceAll('%%ANTHROPIC_KEY_PARAM%%', SHARED_SSM_PARAMS.anthropicApiKey)
-      .replaceAll('%%TELEGRAM_BOT_TOKEN_PARAM%%', agent.openclawConfig.telegram.botTokenSsmParam)
-      .replaceAll('%%GATEWAY_TOKEN_PARAM%%', agent.openclawConfig.telegram.gatewayTokenSsmParam)
-      .replaceAll('%%TELEGRAM_GROUP_ID_PARAM%%', SHARED_SSM_PARAMS.telegramGroupId)
+      .replaceAll('%%DISCORD_BOT_TOKEN_PARAM%%', agent.openclawConfig.discord.botTokenSsmParam)
+      .replaceAll('%%GATEWAY_TOKEN_PARAM%%', agent.openclawConfig.discord.gatewayTokenSsmParam)
       .replaceAll('%%TAILSCALE_KEY_PARAM%%', SHARED_SSM_PARAMS.tailscaleAuthKey)
-      .replaceAll('%%SOUL_MD%%', soulMd)
-      .replaceAll('%%IDENTITY_MD%%', identityMd)
-      .replaceAll('%%AGENTS_MD%%', agentsMd)
-      .replaceAll('%%HEARTBEAT_MD%%', heartbeatMd)
+      .replaceAll('%%API_PROVIDER%%', agent.openclawConfig.apiProvider)
+      .replaceAll('%%OPENROUTER_KEY_PARAM%%', SHARED_SSM_PARAMS.openrouterApiKey)
+      .replaceAll('%%OLLAMA_BASE_URL%%', agent.openclawConfig.ollamaBaseUrl ?? '')
+      .replaceAll('%%SPAWN_SUBAGENT_DEFAULT_MODEL%%', spawnSubagentDefaultModel)
       .replaceAll('%%OPENCLAW_JSON%%', openclawJson);
 
     userData.addCommands(rendered);
@@ -103,6 +97,7 @@ export class OpenClawInstance extends Construct {
         },
       ],
       associatePublicIpAddress: true,
+      requireImdsv2: true,
     });
 
     cdk.Tags.of(this.instance).add('Project', 'openclaw-squad');
@@ -113,25 +108,54 @@ export class OpenClawInstance extends Construct {
 }
 
 function buildOpenClawJson(agent: AgentDefinition): string {
-  // Only include keys recognized by OpenClaw's config schema.
-  // Agent identity (name, role, model) goes in workspace SOUL/IDENTITY files.
-  const config: Record<string, unknown> = {
+  const modelConfig: Record<string, unknown> = {
+    primary: agent.openclawConfig.primaryModel,
+  };
+  if (agent.openclawConfig.fallbackModel) {
+    modelConfig.fallback = agent.openclawConfig.fallbackModel;
+  }
+
+  const config: Record<string, unknown> = {};
+
+  if (agent.openclawConfig.apiProvider === 'ollama' && agent.openclawConfig.ollamaBaseUrl) {
+    config.models = {
+      providers: {
+        ollama: {
+          baseUrl: agent.openclawConfig.ollamaBaseUrl,
+          apiKey: 'ollama-local',
+          api: 'openai-completions',
+        },
+      },
+    };
+  }
+
+  Object.assign(config, {
+    agents: {
+      defaults: {
+        model: modelConfig,
+        heartbeat: {
+          every: `${agent.openclawConfig.heartbeatIntervalMinutes}m`,
+        },
+      },
+    },
     channels: {
-      telegram: {
+      discord: {
         enabled: true,
+        groupPolicy: 'open',
+        allowBots: true,
       },
     },
     gateway: {
       mode: 'local',
       bind: 'loopback',
       auth: {
-        mode: 'token',
+        mode: 'none',
       },
       controlUi: {
         dangerouslyDisableDeviceAuth: true,
       },
     },
-  };
+  });
 
   return JSON.stringify(config, null, 2);
 }
