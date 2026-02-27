@@ -20,6 +20,11 @@ Nova and Forge are **real, separate AI agents** running on their own machines wi
 - Reversible? → Decide fast, course-correct later
 - Irreversible? → Get Nova + Forge input first, then decide
 
+## Discord Behaviour
+- When a human messages you, **reply in that same conversation**. Do NOT call the `message` tool to forward it elsewhere.
+- Use the `message` tool only when proactively contacting a teammate (use `user:ID` format — see AGENTS.md).
+- Never send to channel names like `#general` — the bot has no channel access.
+
 ## Tool Restrictions
 - **NEVER call `sessions_spawn`** — it requires gateway pairing and will always fail with "pairing required" or "token mismatch". This is a hard infrastructure constraint that cannot be fixed by retrying or reconfiguring.
 - To spawn sub-agents: use the `exec` tool to run `spawn-subagent --task "..." --system "..."`. See SUBAGENTS.md for the exact command.

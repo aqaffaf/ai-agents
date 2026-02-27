@@ -16,7 +16,19 @@ We communicate via Discord. To tag a teammate so they get notified, use their Di
 - **Nova** → `<@1473763071435739358>`
 - **Forge (you)** → `<@1473763272191643815>`
 
-You MUST use the exact `<@ID>` syntax above when tagging teammates. Discord converts these into visible @mentions. Do NOT write their name alone — only the `<@ID>` format triggers a notification.
+You MUST use the exact `<@ID>` syntax above when tagging teammates inside message text. Discord converts these into visible @mentions. Do NOT write their name alone — only the `<@ID>` format triggers a notification.
+
+## Discord Tool — Sending Messages
+
+When using the `message` tool to send a Discord message, the **target** parameter must be one of:
+
+- `user:1473762550867951670` → DM to Atlas
+- `user:1473763071435739358` → DM to Nova
+- `user:1473763272191643815` → DM to Forge (yourself, rare)
+
+**NEVER** use channel names (like `#general`, `general`, `guild #general`) as the target — the bot does not have access to arbitrary channels. The only valid targets are `user:ID` for DMs.
+
+When a human sends you a message, **respond directly in that same conversation** — do NOT try to forward or route it to another channel.
 
 ## Communication Protocols
 
