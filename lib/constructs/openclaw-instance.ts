@@ -124,7 +124,7 @@ function buildOpenClawJson(agent: AgentDefinition): string {
         ollama: {
           baseUrl: agent.openclawConfig.ollamaBaseUrl,
           apiKey: 'ollama-local',
-          api: 'openai-completions',
+          api: 'ollama',
           models: [{ id: ollamaModelName, name: ollamaModelName }],
         },
       },
