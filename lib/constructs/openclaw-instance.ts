@@ -118,12 +118,14 @@ function buildOpenClawJson(agent: AgentDefinition): string {
   const config: Record<string, unknown> = {};
 
   if (agent.openclawConfig.apiProvider === 'ollama' && agent.openclawConfig.ollamaBaseUrl) {
+    const ollamaModelName = agent.openclawConfig.primaryModel.replace(/^ollama\//, '');
     config.models = {
       providers: {
         ollama: {
           baseUrl: agent.openclawConfig.ollamaBaseUrl,
           apiKey: 'ollama-local',
           api: 'openai-completions',
+          models: [{ id: ollamaModelName, name: ollamaModelName }],
         },
       },
     };
