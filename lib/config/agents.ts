@@ -39,7 +39,7 @@ export const AGENTS: AgentDefinition[] = [
     role: 'Manager & Coordinator',
     instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
     openclawConfig: {
-      primaryModel: 'ollama/qwen3.5:27b',
+      primaryModel: 'ollama/qwen3:14b',
       heartbeatIntervalMinutes: 15,
       discord: {
         botTokenSsmParam: '/openclaw/discord-bot-token/manager',
@@ -57,7 +57,7 @@ export const AGENTS: AgentDefinition[] = [
     role: 'Product & Growth Lead',
     instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
     openclawConfig: {
-      primaryModel: 'ollama/qwen3.5:27b',
+      primaryModel: 'ollama/qwen3:14b',
       heartbeatIntervalMinutes: 30,
       discord: {
         botTokenSsmParam: '/openclaw/discord-bot-token/product',
@@ -75,7 +75,7 @@ export const AGENTS: AgentDefinition[] = [
     role: 'Technical Developer',
     instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
     openclawConfig: {
-      primaryModel: 'ollama/qwen3.5:27b',
+      primaryModel: 'ollama/qwen3:14b',
       heartbeatIntervalMinutes: 30,
       discord: {
         botTokenSsmParam: '/openclaw/discord-bot-token/developer',
