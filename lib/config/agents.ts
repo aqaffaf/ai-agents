@@ -39,7 +39,7 @@ export const AGENTS: AgentDefinition[] = [
     role: 'Manager & Coordinator',
     instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
     openclawConfig: {
-      primaryModel: 'ollama/qwen3:14b-nothink',
+      primaryModel: 'ollama/qwen3-coder:480b-cloud',
       heartbeatIntervalMinutes: 15,
       discord: {
         botTokenSsmParam: '/openclaw/discord-bot-token/manager',
@@ -47,7 +47,7 @@ export const AGENTS: AgentDefinition[] = [
       },
       sandbox: false,
       apiProvider: 'ollama',
-      ollamaBaseUrl: 'http://z6:11434',
+      ollamaBaseUrl: 'http://100.104.1.104:11434',
     },
   },
   {
@@ -57,7 +57,7 @@ export const AGENTS: AgentDefinition[] = [
     role: 'Product & Growth Lead',
     instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
     openclawConfig: {
-      primaryModel: 'ollama/qwen3:14b-nothink',
+      primaryModel: 'ollama/qwen3-coder:480b-cloud',
       heartbeatIntervalMinutes: 30,
       discord: {
         botTokenSsmParam: '/openclaw/discord-bot-token/product',
@@ -65,7 +65,7 @@ export const AGENTS: AgentDefinition[] = [
       },
       sandbox: false,
       apiProvider: 'ollama',
-      ollamaBaseUrl: 'http://z6:11434',
+      ollamaBaseUrl: 'http://100.104.1.104:11434',
     },
   },
   {
@@ -75,7 +75,7 @@ export const AGENTS: AgentDefinition[] = [
     role: 'Technical Developer',
     instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
     openclawConfig: {
-      primaryModel: 'ollama/qwen3:14b-nothink',
+      primaryModel: 'ollama/qwen3-coder:480b-cloud',
       heartbeatIntervalMinutes: 30,
       discord: {
         botTokenSsmParam: '/openclaw/discord-bot-token/developer',
@@ -83,7 +83,7 @@ export const AGENTS: AgentDefinition[] = [
       },
       sandbox: true,
       apiProvider: 'ollama',
-      ollamaBaseUrl: 'http://z6:11434',
+      ollamaBaseUrl: 'http://100.104.1.104:11434',
     },
   },
 ];
