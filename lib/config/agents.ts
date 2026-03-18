@@ -159,6 +159,31 @@ export const AGENTS: AgentDefinition[] = [
       bedrockModelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
     },
   },
+  // ── QA agent ─────────────────────────────────────────────────
+  // Pre-deployment prerequisites:
+  //   aws ssm put-parameter --name /openclaw/discord-bot-token/qa --type SecureString --value <TOKEN>
+  //   aws ssm put-parameter --name /openclaw/gateway-token/qa     --type SecureString --value <TOKEN>
+  // Replace VEX_DISCORD_ID in lib/workspace-templates/qa/ after creating the Discord bot.
+  {
+    agentId: 'qa',
+    agentName: 'Vex',
+    emoji: '🧪',
+    role: 'Quality Assurance Engineer',
+    instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
+    frameworkType: 'openclaw',
+    openclawConfig: {
+      primaryModel: 'bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0',
+      heartbeatIntervalMinutes: 30,
+      discord: {
+        botTokenSsmParam: '/openclaw/discord-bot-token/qa',
+        gatewayTokenSsmParam: '/openclaw/gateway-token/qa',
+      },
+      sandbox: true,   // QA runs in sandbox mode — safe for testing destructive flows
+      apiProvider: 'bedrock',
+      bedrockRegion: 'us-east-1',
+      bedrockModelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+    },
+  },
 ];
 
 // ── Example agent definitions for NanoClaw and Bedrock AgentCore ─

@@ -1,6 +1,6 @@
 # OpenClaw AI Agent Fleet
 
-A CDK TypeScript project that deploys a fleet of three autonomous AI agents (**Atlas**, **Nova**, **Forge**) on EC2, each backed by a configurable AI model provider.
+A CDK TypeScript project that deploys a fleet of four autonomous AI agents (**Atlas**, **Nova**, **Forge**, **Vex**) on EC2, each backed by a configurable AI model provider.
 
 ## Agents
 
@@ -9,6 +9,9 @@ A CDK TypeScript project that deploys a fleet of three autonomous AI agents (**A
 | 🗺️ **Atlas** | Manager & Coordinator | Amazon Bedrock | `anthropic.claude-3-5-sonnet-20241022-v2:0` |
 | 🚀 **Nova** | Product & Growth Lead | Google Gemini | `gemini-2.0-flash` |
 | 🔧 **Forge** | Technical Developer | Amazon Bedrock | `anthropic.claude-3-5-sonnet-20241022-v2:0` |
+| 🧪 **Vex** | Quality Assurance Engineer | Amazon Bedrock | `anthropic.claude-3-5-sonnet-20241022-v2:0` |
+
+> ⚠️ **Vex pre-deployment prerequisites:** Create SSM parameters `/openclaw/discord-bot-token/qa` and `/openclaw/gateway-token/qa` before running `cdk deploy`. See [Pre-deployment Setup](#pre-deployment-setup).
 
 ---
 
@@ -70,6 +73,24 @@ ollamaBaseUrl: 'http://<your-ollama-host>:11434',
 ## Pre-deployment Setup
 
 Before running `cdk deploy`, provision all required SSM parameters and enable service access. Full instructions: **[`docs/setup-secrets.md`](docs/setup-secrets.md)**.
+
+### Vex (QA agent) — additional required SSM parameters
+
+```bash
+aws ssm put-parameter \
+  --name "/openclaw/discord-bot-token/qa" \
+  --value "<VEX_DISCORD_BOT_TOKEN>" \
+  --type SecureString \
+  --region us-east-1
+
+aws ssm put-parameter \
+  --name "/openclaw/gateway-token/qa" \
+  --value "<VEX_GATEWAY_TOKEN>" \
+  --type SecureString \
+  --region us-east-1
+```
+
+After creating the Vex Discord bot, replace `VEX_DISCORD_ID` in all `lib/workspace-templates/qa/*.md` files and the three existing `AGENTS.md` files with the real Discord bot User ID.
 
 Quick verification:
 ```bash
