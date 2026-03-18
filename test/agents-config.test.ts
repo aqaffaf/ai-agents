@@ -17,15 +17,16 @@ function spawnSubagentDefaultModel(config: OpenClawConfig): string {
 }
 
 describe('AGENTS config', () => {
-  it('contains exactly three agents', () => {
-    expect(AGENTS).toHaveLength(3);
+  it('contains exactly four agents', () => {
+    expect(AGENTS).toHaveLength(4);
   });
 
-  it('includes Atlas (manager), Nova (product), and Forge (developer)', () => {
+  it('includes Atlas (manager), Nova (product), Forge (developer), and Vex (qa)', () => {
     const ids = AGENTS.map((a) => a.agentId);
     expect(ids).toContain('manager');
     expect(ids).toContain('product');
     expect(ids).toContain('developer');
+    expect(ids).toContain('qa');
   });
 
   it('Atlas is configured to use bedrock', () => {
@@ -50,6 +51,71 @@ describe('AGENTS config', () => {
     expect(forge.openclawConfig.bedrockModelId).toBe(
       'anthropic.claude-3-5-sonnet-20241022-v2:0',
     );
+  });
+});
+
+describe('AGENTS config — Vex (qa)', () => {
+  const vex = AGENTS.find((a) => a.agentId === 'qa')!;
+
+  it('has agentId === "qa"', () => {
+    expect(vex).toBeDefined();
+  });
+
+  it('has agentName === "Vex"', () => {
+    expect(vex.agentName).toBe('Vex');
+  });
+
+  it('has emoji === "🧪"', () => {
+    expect(vex.emoji).toBe('🧪');
+  });
+
+  it('has role === "Quality Assurance Engineer"', () => {
+    expect(vex.role).toBe('Quality Assurance Engineer');
+  });
+
+  it('has frameworkType === "openclaw"', () => {
+    expect(vex.frameworkType).toBe('openclaw');
+  });
+
+  it('has openclawConfig defined', () => {
+    expect(vex.openclawConfig).toBeDefined();
+  });
+
+  it('has openclawConfig.apiProvider === "bedrock"', () => {
+    expect(vex.openclawConfig.apiProvider).toBe('bedrock');
+  });
+
+  it('has openclawConfig.sandbox === true', () => {
+    expect(vex.openclawConfig.sandbox).toBe(true);
+  });
+
+  it('has openclawConfig.discord.botTokenSsmParam === "/openclaw/discord-bot-token/qa"', () => {
+    expect(vex.openclawConfig.discord.botTokenSsmParam).toBe('/openclaw/discord-bot-token/qa');
+  });
+
+  it('has openclawConfig.discord.gatewayTokenSsmParam === "/openclaw/gateway-token/qa"', () => {
+    expect(vex.openclawConfig.discord.gatewayTokenSsmParam).toBe('/openclaw/gateway-token/qa');
+  });
+
+  it('has openclawConfig.bedrockRegion === "us-east-1"', () => {
+    expect(vex.openclawConfig.bedrockRegion).toBe('us-east-1');
+  });
+
+  it('has openclawConfig.bedrockModelId set', () => {
+    expect(vex.openclawConfig.bedrockModelId).toBeTruthy();
+  });
+
+  it('has heartbeatIntervalMinutes === 30', () => {
+    expect(vex.openclawConfig.heartbeatIntervalMinutes).toBe(30);
+  });
+
+  it('has an instanceType defined (EC2-based agent)', () => {
+    expect(vex.instanceType).toBeDefined();
+  });
+
+  it('produces correct spawnSubagentDefaultModel output (bedrock model id)', () => {
+    const model = spawnSubagentDefaultModel(vex.openclawConfig);
+    expect(model).toBe('anthropic.claude-3-5-sonnet-20241022-v2:0');
   });
 });
 
