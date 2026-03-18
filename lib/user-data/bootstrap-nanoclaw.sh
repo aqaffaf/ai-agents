@@ -1,0 +1,291 @@
+#!/bin/bash
+set -euo pipefail
+exec > /var/log/nanoclaw-bootstrap.log 2>&1
+
+AGENT_ID="%%AGENT_ID%%"
+AGENT_NAME="%%AGENT_NAME%%"
+REGION="%%REGION%%"
+
+echo "=== Bootstrapping NanoClaw agent: ${AGENT_NAME} (${AGENT_ID}) ==="
+
+# ── System packages ─────────────────────────────────────────────
+dnf update -y
+dnf install -y jq python3
+
+# ── Install NanoClaw ────────────────────────────────────────────
+# The installer may run an interactive setup wizard at the end which fails
+# in user data (no /dev/tty). The binary installs fine — we handle config ourselves.
+export HOME=/root
+curl -fsSL https://nanoclaw.ai/install.sh | bash || true
+
+# ── Fetch secrets from SSM Parameter Store ──────────────────────
+get_ssm_param() {
+  aws ssm get-parameter \
+    --name "$1" \
+    --with-decryption \
+    --query 'Parameter.Value' \
+    --output text \
+    --region "${REGION}"
+}
+
+ANTHROPIC_API_KEY=$(get_ssm_param "%%ANTHROPIC_KEY_PARAM%%")
+OPENROUTER_API_KEY=""
+if [ "%%API_PROVIDER%%" = "openrouter" ]; then
+  OPENROUTER_API_KEY=$(get_ssm_param "%%OPENROUTER_KEY_PARAM%%")
+fi
+GEMINI_API_KEY=""
+if [ "%%API_PROVIDER%%" = "gemini" ]; then
+  GEMINI_API_KEY=$(get_ssm_param "%%GEMINI_KEY_PARAM%%")
+fi
+DISCORD_BOT_TOKEN=$(get_ssm_param "%%DISCORD_BOT_TOKEN_PARAM%%")
+GATEWAY_TOKEN=$(get_ssm_param "%%GATEWAY_TOKEN_PARAM%%")
+
+# ── Create NanoClaw directory structure ─────────────────────────
+NC_HOME="/home/ec2-user/.nanoclaw"
+AGENT_WORKSPACE="${NC_HOME}/agents/main/workspace"
+mkdir -p "${AGENT_WORKSPACE}"
+
+# ── Fetch workspace files from GitHub ──────────────────────────
+REPO_RAW="https://raw.githubusercontent.com/aqaffaf/ai-agents/main/lib/workspace-templates/${AGENT_ID}"
+for FILE in SOUL.md IDENTITY.md AGENTS.md HEARTBEAT.md SUBAGENTS.md; do
+  curl -fsSL "${REPO_RAW}/${FILE}" -o "${AGENT_WORKSPACE}/${FILE}" || true
+done
+
+# ── Install spawn-subagent script ──────────────────────────────
+cat > /usr/local/bin/spawn-subagent << 'SUBAGENT_SCRIPT_EOF'
+#!/usr/bin/env python3
+"""Spawn an ephemeral sub-agent via Anthropic, OpenRouter, Ollama, Bedrock, or Gemini."""
+import sys, json, os, argparse, urllib.request
+
+def call_anthropic(api_key, model, system, task, max_tokens):
+    payload = json.dumps({
+        'model': model, 'max_tokens': max_tokens,
+        'system': system,
+        'messages': [{'role': 'user', 'content': task}]
+    }).encode()
+    req = urllib.request.Request(
+        'https://api.anthropic.com/v1/messages', data=payload,
+        headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01',
+                 'content-type': 'application/json'}
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())['content'][0]['text']
+
+def call_openrouter(api_key, model, system, task, max_tokens):
+    payload = json.dumps({
+        'model': model, 'max_tokens': max_tokens,
+        'messages': [{'role': 'system', 'content': system},
+                     {'role': 'user', 'content': task}]
+    }).encode()
+    req = urllib.request.Request(
+        'https://openrouter.ai/api/v1/chat/completions', data=payload,
+        headers={'Authorization': f'Bearer {api_key}',
+                 'content-type': 'application/json'}
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())['choices'][0]['message']['content']
+
+def call_ollama(base_url, model, system, task, max_tokens):
+    payload = json.dumps({
+        'model': model, 'max_tokens': max_tokens,
+        'messages': [{'role': 'system', 'content': system},
+                     {'role': 'user', 'content': task}]
+    }).encode()
+    req = urllib.request.Request(
+        f'{base_url}/v1/chat/completions', data=payload,
+        headers={'Authorization': 'Bearer ollama',
+                 'content-type': 'application/json'}
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())['choices'][0]['message']['content']
+
+def call_bedrock(model_id, region, system, task, max_tokens):
+    """Invoke Amazon Bedrock via the AWS CLI (available on Amazon Linux 2023)."""
+    import subprocess, tempfile
+    payload = json.dumps({
+        'anthropic_version': 'bedrock-2023-05-31',
+        'max_tokens': max_tokens,
+        'system': system,
+        'messages': [{'role': 'user', 'content': task}]
+    })
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        response_file = f.name
+    try:
+        cmd = [
+            'aws', 'bedrock-runtime', 'invoke-model',
+            '--model-id', model_id,
+            '--region', region,
+            '--body', payload,
+            '--content-type', 'application/json',
+            '--accept', 'application/json',
+            response_file,
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+        with open(response_file) as f:
+            data = json.load(f)
+        return data['content'][0]['text']
+    finally:
+        import os as _os
+        _os.unlink(response_file)
+
+def call_gemini(api_key, model, base_url, system, task, max_tokens):
+    """Call the Google Gemini generateContent REST API."""
+    payload = json.dumps({
+        'contents': [
+            {'role': 'user', 'parts': [{'text': f'{system}\n\n{task}'}]}
+        ],
+        'generationConfig': {'maxOutputTokens': max_tokens}
+    }).encode()
+    url = f'{base_url}/models/{model}:generateContent?key={api_key}'
+    req = urllib.request.Request(
+        url, data=payload,
+        headers={'content-type': 'application/json'}
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())['candidates'][0]['content']['parts'][0]['text']
+
+def main():
+    provider = os.environ.get('SPAWN_SUBAGENT_PROVIDER', 'anthropic')
+    default_model = os.environ.get('SPAWN_SUBAGENT_DEFAULT_MODEL', 'claude-sonnet-4-6')
+
+    p = argparse.ArgumentParser()
+    p.add_argument('--task', required=True)
+    p.add_argument('--system', default='You are a helpful AI assistant.')
+    p.add_argument('--model', default=default_model)
+    p.add_argument('--max-tokens', type=int, default=4096)
+    args = p.parse_args()
+
+    if provider == 'openrouter':
+        api_key = os.environ.get('OPENROUTER_API_KEY', '')
+        if not api_key:
+            print('ERROR: OPENROUTER_API_KEY not set', file=sys.stderr)
+            sys.exit(1)
+        print(call_openrouter(api_key, args.model, args.system, args.task, args.max_tokens))
+    elif provider == 'ollama':
+        base_url = os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')
+        print(call_ollama(base_url, args.model, args.system, args.task, args.max_tokens))
+    elif provider == 'bedrock':
+        region = os.environ.get('AWS_BEDROCK_REGION', 'us-east-1')
+        print(call_bedrock(args.model, region, args.system, args.task, args.max_tokens))
+    elif provider == 'gemini':
+        api_key = os.environ.get('GEMINI_API_KEY', '')
+        if not api_key:
+            print('ERROR: GEMINI_API_KEY not set', file=sys.stderr)
+            sys.exit(1)
+        base_url = os.environ.get('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta')
+        print(call_gemini(api_key, args.model, base_url, args.system, args.task, args.max_tokens))
+    else:
+        api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+        if not api_key:
+            print('ERROR: ANTHROPIC_API_KEY not set', file=sys.stderr)
+            sys.exit(1)
+        print(call_anthropic(api_key, args.model, args.system, args.task, args.max_tokens))
+
+if __name__ == '__main__':
+    main()
+SUBAGENT_SCRIPT_EOF
+chmod +x /usr/local/bin/spawn-subagent
+
+# ── Write nanoclaw.json ────────────────────────────────────────
+cat > "${NC_HOME}/nanoclaw.json" << NCEOF
+%%NANOCLAW_JSON%%
+NCEOF
+
+# ── Write .env file ────────────────────────────────────────────
+cat > "${NC_HOME}/.env" << ENVEOF
+ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+OLLAMA_BASE_URL=%%OLLAMA_BASE_URL%%
+AWS_BEDROCK_REGION=%%BEDROCK_REGION%%
+BEDROCK_MODEL_ID=%%BEDROCK_MODEL_ID%%
+GEMINI_API_KEY=${GEMINI_API_KEY}
+GEMINI_BASE_URL=%%GEMINI_BASE_URL%%
+SPAWN_SUBAGENT_PROVIDER=%%API_PROVIDER%%
+SPAWN_SUBAGENT_DEFAULT_MODEL=%%SPAWN_SUBAGENT_DEFAULT_MODEL%%
+DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+GATEWAY_TOKEN=${GATEWAY_TOKEN}
+NANOCLAW_HOME=${NC_HOME}
+ENVEOF
+
+# ── Fix ownership ──────────────────────────────────────────────
+chown -R ec2-user:ec2-user "${NC_HOME}"
+
+# ── Install Tailscale (tailnet-only HTTPS for Control UI) ─────
+curl -fsSL https://tailscale.com/install.sh | sh
+TS_AUTH_KEY=$(get_ssm_param "%%TAILSCALE_KEY_PARAM%%")
+HOSTNAME="nanoclaw-$(echo ${AGENT_NAME} | tr '[:upper:]' '[:lower:]')"
+systemctl enable tailscaled
+systemctl start tailscaled
+tailscale up --authkey="${TS_AUTH_KEY}" --hostname="${HOSTNAME}" --accept-routes --ssh
+
+# ── Create system-level systemd service for NanoClaw agent ─────
+# We create a system service directly to avoid issues with user-level
+# services in headless cloud-init environments.
+cat > /etc/systemd/system/nanoclaw-agent.service << SVCEOF
+[Unit]
+Description=NanoClaw Agent - ${AGENT_NAME}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=${NC_HOME}
+Environment=HOME=/home/ec2-user
+Environment=NANOCLAW_STATE_DIR=${NC_HOME}
+Environment=NANOCLAW_CONFIG_PATH=${NC_HOME}/nanoclaw.json
+Environment=ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+Environment=OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+Environment=OLLAMA_BASE_URL=%%OLLAMA_BASE_URL%%
+Environment=AWS_BEDROCK_REGION=%%BEDROCK_REGION%%
+Environment=BEDROCK_MODEL_ID=%%BEDROCK_MODEL_ID%%
+Environment=GEMINI_API_KEY=${GEMINI_API_KEY}
+Environment=GEMINI_BASE_URL=%%GEMINI_BASE_URL%%
+Environment=SPAWN_SUBAGENT_PROVIDER=%%API_PROVIDER%%
+Environment=SPAWN_SUBAGENT_DEFAULT_MODEL=%%SPAWN_SUBAGENT_DEFAULT_MODEL%%
+Environment=DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+Environment=NANOCLAW_GATEWAY_TOKEN=${GATEWAY_TOKEN}
+ExecStart=/usr/bin/nanoclaw agent run --bind loopback
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+systemctl daemon-reload
+systemctl enable nanoclaw-agent
+systemctl start nanoclaw-agent
+
+# ── Install and configure CloudWatch agent ─────────────────────
+dnf install -y amazon-cloudwatch-agent
+
+cat > /opt/aws/amazon-cloudwatch-agent/etc/config.json << 'CWEOF'
+{
+  "agent": { "run_as_user": "root" },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/nanoclaw-bootstrap.log",
+            "log_group_name": "/nanoclaw/%%AGENT_ID%%/bootstrap",
+            "log_stream_name": "{instance_id}"
+          },
+          {
+            "file_path": "/home/ec2-user/.nanoclaw/logs/*.log",
+            "log_group_name": "/nanoclaw/%%AGENT_ID%%/app",
+            "log_stream_name": "{instance_id}"
+          }
+        ]
+      }
+    }
+  }
+}
+CWEOF
+
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 -s \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/config.json
+
+echo "=== NanoClaw agent ${AGENT_NAME} bootstrap complete ==="
