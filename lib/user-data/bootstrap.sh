@@ -33,6 +33,10 @@ OPENROUTER_API_KEY=""
 if [ "%%API_PROVIDER%%" = "openrouter" ]; then
   OPENROUTER_API_KEY=$(get_ssm_param "%%OPENROUTER_KEY_PARAM%%")
 fi
+GEMINI_API_KEY=""
+if [ "%%API_PROVIDER%%" = "gemini" ]; then
+  GEMINI_API_KEY=$(get_ssm_param "%%GEMINI_KEY_PARAM%%")
+fi
 DISCORD_BOT_TOKEN=$(get_ssm_param "%%DISCORD_BOT_TOKEN_PARAM%%")
 GATEWAY_TOKEN=$(get_ssm_param "%%GATEWAY_TOKEN_PARAM%%")
 
@@ -55,7 +59,7 @@ done
 # ── Install spawn-subagent script ──────────────────────────────
 cat > /usr/local/bin/spawn-subagent << 'SUBAGENT_SCRIPT_EOF'
 #!/usr/bin/env python3
-"""Spawn an ephemeral sub-agent via Anthropic or OpenRouter."""
+"""Spawn an ephemeral sub-agent via Anthropic, OpenRouter, Ollama, Bedrock, or Gemini."""
 import sys, json, os, argparse, urllib.request
 
 def call_anthropic(api_key, model, system, task, max_tokens):
@@ -100,6 +104,51 @@ def call_ollama(base_url, model, system, task, max_tokens):
     with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read())['choices'][0]['message']['content']
 
+def call_bedrock(model_id, region, system, task, max_tokens):
+    """Invoke Amazon Bedrock via the AWS CLI (available on Amazon Linux 2023)."""
+    import subprocess, tempfile
+    payload = json.dumps({
+        'anthropic_version': 'bedrock-2023-05-31',
+        'max_tokens': max_tokens,
+        'system': system,
+        'messages': [{'role': 'user', 'content': task}]
+    })
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        response_file = f.name
+    try:
+        cmd = [
+            'aws', 'bedrock-runtime', 'invoke-model',
+            '--model-id', model_id,
+            '--region', region,
+            '--body', payload,
+            '--content-type', 'application/json',
+            '--accept', 'application/json',
+            response_file,
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+        with open(response_file) as f:
+            data = json.load(f)
+        return data['content'][0]['text']
+    finally:
+        import os as _os
+        _os.unlink(response_file)
+
+def call_gemini(api_key, model, base_url, system, task, max_tokens):
+    """Call the Google Gemini generateContent REST API."""
+    payload = json.dumps({
+        'contents': [
+            {'role': 'user', 'parts': [{'text': f'{system}\n\n{task}'}]}
+        ],
+        'generationConfig': {'maxOutputTokens': max_tokens}
+    }).encode()
+    url = f'{base_url}/models/{model}:generateContent?key={api_key}'
+    req = urllib.request.Request(
+        url, data=payload,
+        headers={'content-type': 'application/json'}
+    )
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())['candidates'][0]['content']['parts'][0]['text']
+
 def main():
     provider = os.environ.get('SPAWN_SUBAGENT_PROVIDER', 'anthropic')
     default_model = os.environ.get('SPAWN_SUBAGENT_DEFAULT_MODEL', 'claude-sonnet-4-6')
@@ -120,6 +169,16 @@ def main():
     elif provider == 'ollama':
         base_url = os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')
         print(call_ollama(base_url, args.model, args.system, args.task, args.max_tokens))
+    elif provider == 'bedrock':
+        region = os.environ.get('AWS_BEDROCK_REGION', 'us-east-1')
+        print(call_bedrock(args.model, region, args.system, args.task, args.max_tokens))
+    elif provider == 'gemini':
+        api_key = os.environ.get('GEMINI_API_KEY', '')
+        if not api_key:
+            print('ERROR: GEMINI_API_KEY not set', file=sys.stderr)
+            sys.exit(1)
+        base_url = os.environ.get('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta')
+        print(call_gemini(api_key, args.model, base_url, args.system, args.task, args.max_tokens))
     else:
         api_key = os.environ.get('ANTHROPIC_API_KEY', '')
         if not api_key:
@@ -142,6 +201,10 @@ cat > "${OC_HOME}/.env" << ENVEOF
 ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
 OLLAMA_BASE_URL=%%OLLAMA_BASE_URL%%
+AWS_BEDROCK_REGION=%%BEDROCK_REGION%%
+BEDROCK_MODEL_ID=%%BEDROCK_MODEL_ID%%
+GEMINI_API_KEY=${GEMINI_API_KEY}
+GEMINI_BASE_URL=%%GEMINI_BASE_URL%%
 SPAWN_SUBAGENT_PROVIDER=%%API_PROVIDER%%
 SPAWN_SUBAGENT_DEFAULT_MODEL=%%SPAWN_SUBAGENT_DEFAULT_MODEL%%
 DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
@@ -179,6 +242,10 @@ Environment=OPENCLAW_CONFIG_PATH=${OC_HOME}/openclaw.json
 Environment=ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 Environment=OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
 Environment=OLLAMA_BASE_URL=%%OLLAMA_BASE_URL%%
+Environment=AWS_BEDROCK_REGION=%%BEDROCK_REGION%%
+Environment=BEDROCK_MODEL_ID=%%BEDROCK_MODEL_ID%%
+Environment=GEMINI_API_KEY=${GEMINI_API_KEY}
+Environment=GEMINI_BASE_URL=%%GEMINI_BASE_URL%%
 Environment=SPAWN_SUBAGENT_PROVIDER=%%API_PROVIDER%%
 Environment=SPAWN_SUBAGENT_DEFAULT_MODEL=%%SPAWN_SUBAGENT_DEFAULT_MODEL%%
 Environment=DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
