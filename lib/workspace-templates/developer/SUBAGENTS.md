@@ -63,4 +63,4 @@ spawn-subagent \
 1. Always synthesize sub-agent output before posting to Discord — never paste raw output
 2. Sub-agents are one-level deep only — they cannot call spawn-subagent
 3. Each sub-agent run is stateless — no memory of previous runs
-4. **CRITICAL: Use ONLY the `spawn-subagent` shell command above. Do NOT use any built-in OpenClaw session spawning tools (sessions_spawn, run-subagent, or similar). Those require gateway pairing and will fail.**
+4. **CRITICAL: Use ONLY the `spawn-subagent` shell command above. Do NOT use any built-in framework-specific session spawning tools (sessions_spawn, run-subagent, or similar internal agent calls). Those require gateway pairing and will fail.**
