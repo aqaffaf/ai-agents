@@ -21,6 +21,18 @@ export class OpenClawInstance extends Construct {
     const { agent, vpc, securityGroup } = props;
     const region = cdk.Stack.of(this).region;
 
+    if (!agent.openclawConfig) {
+      throw new Error(
+        `Agent "${agent.agentId}" has frameworkType 'openclaw' but is missing openclawConfig.`,
+      );
+    }
+
+    if (!agent.instanceType) {
+      throw new Error(
+        `Agent "${agent.agentId}" has frameworkType 'openclaw' but is missing instanceType.`,
+      );
+    }
+
     // ── IAM Role ───────────────────────────────────────────────
     const role = new iam.Role(this, 'Role', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
@@ -124,6 +136,7 @@ export class OpenClawInstance extends Construct {
     });
 
     cdk.Tags.of(this.instance).add('Project', 'openclaw-squad');
+    cdk.Tags.of(this.instance).add('Framework', 'openclaw');
     cdk.Tags.of(this.instance).add('Agent', agent.agentId);
     cdk.Tags.of(this.instance).add('AgentName', agent.agentName);
     cdk.Tags.of(this.instance).add('Name', `openclaw-${agent.agentId}`);
@@ -131,6 +144,10 @@ export class OpenClawInstance extends Construct {
 }
 
 export function buildOpenClawJson(agent: AgentDefinition, region?: string): string {
+  if (!agent.openclawConfig) {
+    throw new Error(`buildOpenClawJson called on agent "${agent.agentId}" without openclawConfig`);
+  }
+
   const resolvedRegion = region ?? 'us-east-1';
   const modelConfig: Record<string, unknown> = {
     primary: agent.openclawConfig.primaryModel,
