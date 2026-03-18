@@ -43,8 +43,23 @@ export class OpenClawInstance extends Construct {
       }),
     );
 
+    // Grant Bedrock invoke permissions when the agent uses Bedrock as its provider
+    if (agent.openclawConfig.apiProvider === 'bedrock') {
+      role.addToPolicy(
+        new iam.PolicyStatement({
+          actions: [
+            'bedrock:InvokeModel',
+            'bedrock:InvokeModelWithResponseStream',
+          ],
+          resources: [
+            `arn:aws:bedrock:${agent.openclawConfig.bedrockRegion ?? region}::foundation-model/*`,
+          ],
+        }),
+      );
+    }
+
     // ── Build openclaw.json ────────────────────────────────────
-    const openclawJson = buildOpenClawJson(agent);
+    const openclawJson = buildOpenClawJson(agent, region);
 
     // ── User Data ──────────────────────────────────────────────
     const bootstrapScript = fs.readFileSync(
@@ -57,7 +72,11 @@ export class OpenClawInstance extends Construct {
         ? agent.openclawConfig.primaryModel.replace(/^openrouter\//, '')
         : agent.openclawConfig.apiProvider === 'ollama'
           ? agent.openclawConfig.primaryModel.replace(/^ollama\//, '')
-          : 'claude-sonnet-4-6';
+          : agent.openclawConfig.apiProvider === 'bedrock'
+            ? agent.openclawConfig.bedrockModelId ?? 'anthropic.claude-3-5-sonnet-20241022-v2:0'
+            : agent.openclawConfig.apiProvider === 'gemini'
+              ? agent.openclawConfig.primaryModel.replace(/^gemini\//, '')
+              : 'claude-sonnet-4-6';
 
     const userData = ec2.UserData.forLinux();
     const rendered = bootstrapScript
@@ -71,6 +90,10 @@ export class OpenClawInstance extends Construct {
       .replaceAll('%%API_PROVIDER%%', agent.openclawConfig.apiProvider)
       .replaceAll('%%OPENROUTER_KEY_PARAM%%', SHARED_SSM_PARAMS.openrouterApiKey)
       .replaceAll('%%OLLAMA_BASE_URL%%', agent.openclawConfig.ollamaBaseUrl ?? '')
+      .replaceAll('%%BEDROCK_REGION%%', agent.openclawConfig.bedrockRegion ?? region)
+      .replaceAll('%%BEDROCK_MODEL_ID%%', agent.openclawConfig.bedrockModelId ?? '')
+      .replaceAll('%%GEMINI_KEY_PARAM%%', agent.openclawConfig.geminiApiKeyParam ?? SHARED_SSM_PARAMS.geminiApiKey)
+      .replaceAll('%%GEMINI_BASE_URL%%', agent.openclawConfig.geminiBaseUrl ?? 'https://generativelanguage.googleapis.com/v1beta')
       .replaceAll('%%SPAWN_SUBAGENT_DEFAULT_MODEL%%', spawnSubagentDefaultModel)
       .replaceAll('%%OPENCLAW_JSON%%', openclawJson);
 
@@ -107,7 +130,8 @@ export class OpenClawInstance extends Construct {
   }
 }
 
-function buildOpenClawJson(agent: AgentDefinition): string {
+export function buildOpenClawJson(agent: AgentDefinition, region?: string): string {
+  const resolvedRegion = region ?? 'us-east-1';
   const modelConfig: Record<string, unknown> = {
     primary: agent.openclawConfig.primaryModel,
   };
@@ -116,8 +140,9 @@ function buildOpenClawJson(agent: AgentDefinition): string {
   }
 
   const config: Record<string, unknown> = {};
+  const provider = agent.openclawConfig.apiProvider;
 
-  if (agent.openclawConfig.apiProvider === 'ollama' && agent.openclawConfig.ollamaBaseUrl) {
+  if (provider === 'ollama' && agent.openclawConfig.ollamaBaseUrl) {
     const ollamaModelName = agent.openclawConfig.primaryModel.replace(/^ollama\//, '');
     config.models = {
       providers: {
@@ -129,7 +154,34 @@ function buildOpenClawJson(agent: AgentDefinition): string {
         },
       },
     };
+  } else if (provider === 'bedrock') {
+    const bedrockModelId =
+      agent.openclawConfig.bedrockModelId ?? 'anthropic.claude-3-5-sonnet-20241022-v2:0';
+    config.models = {
+      providers: {
+        bedrock: {
+          region: agent.openclawConfig.bedrockRegion ?? resolvedRegion,
+          api: 'bedrock',
+          models: [{ id: bedrockModelId, name: bedrockModelId }],
+        },
+      },
+    };
+  } else if (provider === 'gemini') {
+    const geminiModel = agent.openclawConfig.primaryModel.replace(/^gemini\//, '');
+    const geminiBaseUrl =
+      agent.openclawConfig.geminiBaseUrl ?? 'https://generativelanguage.googleapis.com/v1beta';
+    config.models = {
+      providers: {
+        gemini: {
+          baseUrl: geminiBaseUrl,
+          // Gemini exposes an OpenAI-compatible endpoint
+          api: 'openai',
+          models: [{ id: geminiModel, name: geminiModel }],
+        },
+      },
+    };
   }
+  // anthropic and openrouter: no custom provider block needed
 
   Object.assign(config, {
     agents: {
